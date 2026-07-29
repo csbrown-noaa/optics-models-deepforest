@@ -39,10 +39,25 @@ docker build -t optics-hello-world:latest .
 
 **3. Run the Container**
 *(This maps your local GCP credentials into the container so it can access buckets)*
+
+For macOS/Linux (or Cloud Workstations):
+
 ```bash
 docker run -p 8080:8080 \
   -v ~/.config/gcloud:/tmp/.config/gcloud \
   -e GOOGLE_APPLICATION_CREDENTIALS=/tmp/.config/gcloud/application_default_credentials.json \
+  -e GOOGLE_CLOUD_PROJECT=ggn-nmfs-osi-dev-1 \
+  optics-hello-world:latest
+```
+
+For Windows (using PowerShell):
+```bash
+docker run -p 8080:8080 -v ${env:APPDATA}\gcloud:/tmp/.config/gcloud -e GOOGLE_APPLICATION_CREDENTIALS=/tmp/.config/gcloud/application_default_credentials.json optics-hello-world:latest
+
+docker run -p 8080:8080 `
+  -v ${env:APPDATA}\gcloud:/tmp/.config/gcloud `
+  -e GOOGLE_APPLICATION_CREDENTIALS=/tmp/.config/gcloud/application_default_credentials.json `
+  -e GOOGLE_CLOUD_PROJECT=ggn-nmfs-osi-dev-1 `
   optics-hello-world:latest
 ```
 
@@ -110,22 +125,22 @@ docker push us-central1-docker.pkg.dev/ggn-nmfs-osi-dev-1/nmfs-dev-uc1-docker-re
 
 ## ⚙️ Step 4: Hook it into Airflow
 
-To make your model available in the system, you normally must register it in the Airflow DAG.  We are going to skip this step for now, as the optics-hello-world model is already available in [the optics batch processing DAG](TODO)
+To make your model available in the system, you normally must register it in the Airflow DAG.
 
-The DAGs are just python files stored in a bucket [here](https://console.cloud.google.com/storage/browser/us-central1-composer-env1-73848881-bucket/dags).  You can see the existing ones in there.  Open up [the optics batch processing DAG](TODO) to view the contents.
+The DAGs are just python files stored in a bucket [here](https://console.cloud.google.com/storage/browser/us-central1-composer-env1-73848881-bucket/dags).  You can see the existing ones in there.  Open up [the optics batch processing DAG](https://storage.googleapis.com/us-central1-composer-env1-73848881-bucket/dags/scott_test_dag.py) to view the contents.
 
-Locate the `MODEL_JOB_MAP` dictionary in the DAG file and see the entries for the various models. It's just a dictionary containing a hard-coded list of all of the available models and the relevant configuration for that model.  They look something like this:
+Locate the `MODEL_JOB_MAP` dictionary in the DAG file and see the entries for the various models. It's just a dictionary containing a hard-coded list of all of the available models and the relevant configuration for that model. See `ultralytics` as an example. Add yours to `MODEL_JOB_MAP`:
 
 ```python
     "optics-hello-world": {
-        "region": "us-central1",
+        "region": REGION,
         "image": "us-central1-docker.pkg.dev/ggn-nmfs-osi-dev-1/nmfs-dev-uc1-docker-repository/optics-hello-world:latest",
         "cpu": 4,
         "memory": "16Gi",
         "gpu": 1,                   # Change to 0 if CPU only
         "gpu_type": "nvidia-l4",    # Set to None if CPU only
         "machine_type": "g2-standard-4", 
-        "timeout": 360000,
+        "timeout": BATCH_JOB_TIMEOUT,
         "command": ["python"],
         "args": ["/workspace/inference_runner.py"] # <--- DO NOT CHANGE THIS
     }
@@ -133,17 +148,32 @@ Locate the `MODEL_JOB_MAP` dictionary in the DAG file and see the entries for th
 
 Note the "image" field.  This is precisely the image that you just built and pushed into the registry!  That tells the DAG which image to delegate to when you select the "optics-hello-world" model in the dropdown.
 
+Locate the `with DAG`, around line 640, to add your model name to the enum 
+
+```python
+ enum=[
+          "ultralytics",
+          "viame-gpu",
+          "sefsc-class-fish",
+          "optics-hello-world"  # <----- your model
+     ]
+```
+
+
 ## 🚀 Step 5: Triggering in Airflow
 
 When you run a job in Google Cloud Batch, the container boots up on an isolated, headless Virtual Machine. It doesn't have a user interface to accept manual inputs or local curl commands.
 
-Because of this, **Airflow requires your JSON trigger payload to be uploaded to GCS first**. Airflow will pass the GCS URI of your JSON file to the headless VM, which will then download it and start the processing loop you just tested.  So, go back to find your favorite test payload that you created in Step 2.  We are going to upload that to GCS.
+Because of this, **Airflow requires your JSON trigger payload to be uploaded to GCS first**. Airflow will pass the GCS URI of your JSON file to the headless VM, which will then download it and start the processing loop you just tested.  So, go back to find your favorite test payload that you created in Step 2.4, we are going to upload that to GCS.
 
-1. Upload your finalized JSON configuration to GCS (e.g., `gs://ggn-nmfs-osi-dev-1-data/my-folder/trigger_payload.json`).
-2. Go to the Airflow UI and click **Trigger DAG w/ config**.
-3. Set the `model_type` to `optics-hello-world`.
-4. Set the `input_file` parameter to the GCS URI of your uploaded JSON payload.
-5. Hit **Trigger** and monitor your job's progress in the logs!
+1. Upload your finalized JSON configuration to GCS (e.g., `gs://ggn-nmfs-osi-dev-1-data/my-folder/test_payload_images.json`).
+2. Go to Google Cloud console, on search bar `Airflow`, select `Managed Airflow` ->  `composer-env1` -> `Open Airflow UI` tab
+3. Locate the dag file that you added your model in Step 4. click **Trigger DAG w/ config**.
+4. Set the `model_type` to `optics-hello-world`.
+5. Set the `input_file` parameter to the GCS URI of your uploaded JSON payload.
+6. Hit **Trigger** and monitor your job's progress in the logs!
+7. To monitor the DAG progress, select `Managed Airflow` ->  `composer-env1` -> `DAGs`. Click you DAG file, see the list All DAG runs.
+8. To view the detailed log statements in your model, go to Google Cloud console, search `Batch`. When the job is actually scheduled to run, your job will appear on the Job list, select the job, click Logs tab
 
 ---
 
