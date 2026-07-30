@@ -41,6 +41,7 @@ docker build -t optics-deepforest:latest .
 docker run -p 8080:8080 \
   -v ~/.config/gcloud:/tmp/.config/gcloud \
   -e GOOGLE_APPLICATION_CREDENTIALS=/tmp/.config/gcloud/application_default_credentials.json \
+  -e GOOGLE_CLOUD_PROJECT=ggn-nmfs-osi-dev-1 \
   optics-deepforest:latest
 ```
 
